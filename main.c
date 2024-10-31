@@ -140,8 +140,7 @@ void sd_init() {
 
 // Disconnect power from the SD card to improve battery life.
 void sd_power_off() {
-	// The specification says to give the card 8 clock cycles after
-	// finishing operations, more shoun't hurt.
+	// Make sure the card has time to finish operations
 	for (int i = 0; i < 10; i++) sd_xfer(0xFF);
 	_delay_ms(1);
 	// Actually cut power
@@ -172,7 +171,7 @@ void write_block(uint8_t* buff, uint32_t sector) {
 	sd_command(24, sector, 0);
 	sd_get_r1();
 	
-	// Specification says to give 8 cycles before sending data
+	// Give it some time before sending data
 	sd_xfer(0xff); 
 	
 	// Send the start token
