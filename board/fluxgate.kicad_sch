@@ -4508,28 +4508,6 @@
 			)
 		)
 	)
-	(global_label "ADC+"
-		(shape input)
-		(at 97.79 115.57 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "0e263170-b96e-4685-91b8-d7316b04378e")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 105.9762 115.57 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "MOSI"
 		(shape input)
 		(at 97.79 123.19 0)
@@ -4543,6 +4521,28 @@
 		(uuid "1883396c-6e57-4737-865e-1e3524eb2d85")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 105.3714 123.19 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "ADC+"
+		(shape input)
+		(at 97.79 120.65 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "2cd99182-bb62-4c27-bf07-cd6ca3929be6")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 105.9762 120.65 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4728,28 +4728,6 @@
 			)
 		)
 	)
-	(global_label "ADC-"
-		(shape input)
-		(at 97.79 118.11 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "9ca0b193-5eae-48bf-b0ab-bb8b2ccdf59a")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 105.9762 118.11 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-	)
 	(global_label "E_SENSOR"
 		(shape input)
 		(at 237.49 92.71 180)
@@ -4873,6 +4851,28 @@
 		(uuid "e7d0113b-cf92-4928-97a5-c5ce82eafc02")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 110.3908 138.43 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+				(hide yes)
+			)
+		)
+	)
+	(global_label "ADC-"
+		(shape input)
+		(at 97.79 118.11 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "f53906d1-f89b-4831-b33a-6cef8fb2294d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 105.9762 118.11 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -6082,7 +6082,7 @@
 				)
 			)
 		)
-		(property "Value" "20 MHz"
+		(property "Value" "32.768 kHz"
 			(at 46.99 111.76 0)
 			(effects
 				(font

@@ -33,7 +33,7 @@ uint8_t sd_xfer(uint8_t data) {
 void sd_timeout() {
 	while (1) {
 		PORTC.OUT ^= 1 << 2;
-		_delay_ms(10);
+		_delay_ms(100);
 	}
 }
 
@@ -97,8 +97,13 @@ void sd_init() {
 	// Repeatedly try to initialize the card until it exits the idle state.
 	// This always takes a few attemps, I don't really know why.
 	int done = 0;
-	int timeout = 10000; // 10 seconds
+	int timeout = 1000; // 10 seconds
 	while (!done) {
+		// Give up if the card doesn't initialize
+		timeout--;
+		if (timeout == 0) sd_timeout(); 
+		_delay_ms(1);
+		
 		// ACMD 41
 		sd_command(55, 0x0, 0x65);
 		sd_get_r1();
@@ -108,12 +113,6 @@ void sd_init() {
 		if (status == 0x00) done = 1;
 		else if (status == 0x01) continue;
 		else sd_timeout(); // Broken or very old card. (before SD ver. 2)
-		
-		// Give up if the card doesn't initialize
-		if (timeout-- == 0) sd_timeout(); 
-
-		_delay_ms(1);
-		
 	}
 
 	// At this point we know that the card supports SD V2 or higher
@@ -146,8 +145,10 @@ void sd_power_off() {
 	for (int i = 0; i < 10; i++) sd_xfer(0xFF);
 	_delay_ms(1);
 	// Actually cut power
-	PORTC.OUTCLR = PORTC_E_CARD;
 	PORTA.DIRCLR = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
+	_delay_ms(1);
+	PORTC.OUTCLR = PORTC_E_CARD;
+	_delay_ms(1);
 }
 
 // Low level read and write primitives
@@ -243,19 +244,45 @@ DWORD get_fattime (void) {
 //                                                                          //
 //////////////////////////////////////////////////////////////////////////////
 
-void measure() {
+void adc_setup() {
+	VREF.ADC0REF = 0x0; // Internal 1.024 V reference
+	ADC0.CTRLA = 0x1 << 5 | 0x1; // Diff, enable
+	ADC0.CTRLB = 0x0; // Single shot
+	ADC0.CTRLC = 0x0; // Div/2
+	ADC0.MUXPOS = 23; // AIN 23 
+	ADC0.MUXNEG = 22; // AIN 22
+}
+
+void adc_measure() {
+	ADC0.COMMAND = 1;
+}
+
+int64_t measure() {
 	// Turn on the amplifier
 	PORTC.OUTSET = PORTC_E_SENSOR;
 	_delay_ms(10);
+	adc_measure();
+	_delay_ms(10);
 	
 	// Run drive coil
-	for (int i = 0; i < 32; i++) {
-		PORTC.OUT ^= PORTC_DRIVE_COIL; // Toggle driver
-		_delay_us(5);
+	int64_t total_p0 = 0;
+	int64_t total_p1 = 0;
+	for (int i = 0; i < 128; i++) {
+		PORTC.OUTSET = PORTC_DRIVE_COIL; // Toggle driver
+		_delay_us(15);
+		total_p1 += ADC0.RES;
+		adc_measure();
+		_delay_us(15);
+		PORTC.OUTCLR = PORTC_DRIVE_COIL; // Toggle driver
+		_delay_us(15);
+		total_p0 += ADC0.RES;
+		adc_measure();
+		_delay_us(15);
 	}
 
-	// TUrn off unnedded components
+	// Turn off unnedded components
 	PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
+	return total_p1 - total_p0;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -274,17 +301,20 @@ void write_banner() {
 	f_sync(&fd);
 }
 void write_datapoint(int64_t measurement) {
+	PORTC.OUTSET = 1 << 2;
 	f_printf(&fd, "%ld,%lld,\n", lines_written, measurement); 
 	f_sync(&fd);
 	lines_written++;
+	PORTC.OUTCLR = 1 << 2;
 }
-
 
 int main(void) {
 	PORTC.DIRSET = 0xFF; // LED
 
 	PORTA.DIRSET = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; // Sd card spi pins
 	SPI0.CTRLA = 1 << 5 | 0x3 << 1 | 1; // SPI: Master, max prescaler, enabled
+
+	adc_setup();
 	
 	// Write the startup banner to the card
 	sd_init();
@@ -294,10 +324,8 @@ int main(void) {
 
 	// Flash LED	
 	while (1) {
-		PORTC.OUT ^= 1 << 2;
-		
-		_delay_ms(100);
-		
+		_delay_ms(200);
+		write_datapoint(measure());
 	}
 	return 0;
 }
