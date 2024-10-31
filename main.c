@@ -147,7 +147,6 @@ void write_block(uint8_t* buff, uint32_t sector) {
 	sd_command(24, sector, 0); // Write block command
 	sd_get_r1(); // Read responce
 	sd_xfer(0xff); // Give it a moment
-	sd_xfer(0xff); 
 	sd_xfer(0b11111110); // Start token
 	
 	for (int i = 0; i < 0x200; i++) {
@@ -158,20 +157,21 @@ void write_block(uint8_t* buff, uint32_t sector) {
 	sd_xfer(0xff); sd_xfer(0xff);
 	// Wait for completion
 	sd_get_r1();
-	while (sd_xfer(0xff) != 0xff) ; 
+
+	while (sd_xfer(0xff) == 0x00) ; 
 }
 
 int bytes_written = 0;
 DRESULT disk_write (BYTE drive, const BYTE* buff, LBA_t sector, UINT count) {
 	for (int i = 0; i < count; i++) {
-		write_block(&buff[512*i], sector + 1);
+		write_block(&buff[0x200*i], sector);
 	}
 	return 0;
 };
 
 DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff) {
-	if (cmd == GET_SECTOR_SIZE) *((WORD*)buff) = 512;
-	if (cmd == GET_BLOCK_SIZE) *((WORD*)buff) = 512;
+	if (cmd == GET_SECTOR_SIZE) *((WORD*)buff) = 0x200;
+	if (cmd == GET_BLOCK_SIZE) *((DWORD*)buff) = 1;
 	return 0;
 }
 
@@ -213,14 +213,16 @@ int main(void) {
 	
 	sd_init(); // Setup the card
 
-	if (f_mount(&fs, "0", 1)) sd_timeout();
+	// Write a test file
+	if (f_mount(&fs, "", 1)) while (1);
 	_delay_ms(100);
-	if (f_open(&fd, "text.txt", FA_CREATE_ALWAYS | FA_WRITE)) sd_timeout();
+	if (f_open(&fd, "/TEXT.TXT", FA_WRITE | FA_CREATE_ALWAYS)) while (1);
 	_delay_ms(100);
 	int written = 0;
-	if (f_write(&fd, "Hello world!", 12, &written)) sd_timeout();
+	if (f_write(&fd, "Hello world!", 12, &written)) while (1);
 	_delay_ms(100);
-	if (f_close(&fd)) sd_timeout();
+	if (f_close(&fd)) while (1);
+	_delay_ms(100);
 	
 	while (1) {
 		PORTC.OUT ^= 1 << 2;
