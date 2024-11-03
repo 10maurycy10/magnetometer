@@ -31,7 +31,7 @@ uint8_t sd_xfer(uint8_t data) {
 // Flash LED to indicate problem with the card.
 void sd_timeout() {
 	while (1) {
-		PORTC.OUT ^= 1 << 2;
+		PORTC.OUT ^= PORTC_LED;
 		_delay_ms(100);
 	}
 }
@@ -44,6 +44,7 @@ uint8_t sd_get_r1() {
 		uint8_t r1 = sd_xfer(0xff);
 		if (r1 != 0xFF) return r1;
 		if (count > 16000) sd_timeout();
+		_delay_us(10);
 		count++; 
 	}
 }
@@ -56,6 +57,7 @@ uint8_t sd_check_r1() {
 		if (r1 == 0x0 || r1 == 0x1) return 1;
 		if (r1 != 0xff) return 0;
 		if (count > 16000) return 0;
+		_delay_us(10);
 		count++; 
 	}
 }
@@ -284,40 +286,127 @@ void adc_setup() {
 	ADC0.CTRLE = 0x0; // No comparitor
 	ADC0.MUXPOS = 23; // AIN 23 
 	ADC0.MUXNEG = 22; // AIN 22
-	ADC0.SAMPCTRL = 8; // 8 extra sampling cycles
 }
 
-void adc_measure() {
-	ADC0.COMMAND = 1;
-}
-
-int64_t measure() {
-	// Turn on the amplifier
-	PORTC.OUTSET = PORTC_E_SENSOR;
-	_delay_ms(100); // Wait for things to settle	
-
-	// Run drive coil
-	int16_t total_p0 = 0;
-	int16_t total_p1 = 0;
-	for (int i = 0; i < 8; i++) {
-		adc_measure();
-		_delay_us(15);
-		PORTC.OUTSET = PORTC_DRIVE_COIL; // Toggle driver
-		_delay_us(15);
-		while (ADC0.COMMAND) ;
-		total_p0 = ADC0.RES;
-
-		adc_measure();
-		_delay_us(15);
-		PORTC.OUTCLR = PORTC_DRIVE_COIL; // Toggle driver
-		_delay_us(15);
-		while (ADC0.COMMAND) ;
-		total_p1 = ADC0.RES;
+// Two quick flashes then delay
+void self_test_failure() {
+	f_printf(&fd, ",,Self test failed. Giving up.\n"); 
+	f_close(&fd);
+	sd_power_off(); // Ensure that the log file is written
+	while (1) {
+		PORTC.OUTSET = PORTC_LED;
+		_delay_ms(100);
+		PORTC.OUTCLR = PORTC_LED;
+		_delay_ms(100);
+		PORTC.OUTSET = 1 << 2;
+		_delay_ms(100);
+		PORTC.OUTCLR = 1 << 2;
+		_delay_ms(500);
 	}
+}
 
-	// Turn off unnedded components
-	PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
-	return total_p1 - total_p0;
+// Sanity check for the ciruict
+// Measurements are taken multiple times to check for bad (high-z) connections.
+void self_test() {
+	adc_setup();
+	PORTC.OUTSET = PORTC_E_SENSOR;
+	_delay_ms(50);
+
+	// Read voltage divider
+	VREF.ADC0REF = 1; // 2.048 V reference
+	ADC0.MUXPOS = 22; // AIN 22
+	ADC0.MUXNEG = 0x40; // GND
+	for (int i = 0; i < 50; i++) {
+		ADC0.COMMAND = 1;
+		while (ADC0.COMMAND) ;
+	}
+	int16_t vdiv = ADC0.RES;
+	f_printf(&fd, "VDIV,%d\n", vdiv); 
+
+	// Read amplifier output
+	VREF.ADC0REF = 1; // 2.048 V reference
+	ADC0.MUXPOS = 23; // AIN 23
+	ADC0.MUXNEG = 0x40; // GND
+	for (int i = 0; i < 50; i++) {
+		ADC0.COMMAND = 1;
+		while (ADC0.COMMAND) ;
+	}
+	int16_t vamp = ADC0.RES;
+	f_printf(&fd, "VAMP,%d\n", vamp); 
+	
+	// Read difference
+	VREF.ADC0REF = 1; // 2.048 V reference
+	ADC0.MUXPOS = 23; // AIN 23
+	ADC0.MUXNEG = 22; // AIN 22
+	for (int i = 0; i < 50; i++) {
+		ADC0.COMMAND = 1;
+		while (ADC0.COMMAND) ;
+	}
+	int16_t vdiff = ADC0.RES;
+	f_printf(&fd, "VDIFF,%d\n", vdiff); 
+	
+	
+	// Turn off the amplifier
+	PORTC.OUTCLR = PORTC_E_SENSOR;
+	
+	// Fluxh file
+	f_sync(&fd);
+
+	// With a 2.048 volt reference and 2048 bins per vref, the output is will be in mV
+	int32_t expected = 1560; 
+	if (vdiv > (expected + 200) || vdiv < (expected - 200)) self_test_failure();
+	if (vamp > (expected + 200) || vamp < (expected - 200)) self_test_failure();
+	if (vdiff > 50 || vdiff < -50) self_test_failure();
+}
+
+int32_t measure() {
+	// Reset ADC for 1 volt (.5 mV res) differential mode
+	adc_setup();
+	
+	// Run drive coil
+	int32_t p0 = 0, p1 = 0;
+	for (int i = 10; i > 0; i--) {
+		PORTC.OUT ^= 1 << 2;
+		if (i < 5) ADC0.COMMAND = 1;
+		_delay_us(17);
+		PORTC.OUTSET = PORTC_DRIVE_COIL;
+		_delay_us(12);
+		while (ADC0.COMMAND) ;
+		if (i < 5) p1 = ADC0.RES;
+		
+		PORTC.OUT ^= 1 << 2;
+		if (i < 5) ADC0.COMMAND = 1;
+		_delay_us(17);
+		PORTC.OUTCLR = PORTC_DRIVE_COIL; 
+		_delay_us(12);
+		while (ADC0.COMMAND) ;
+		if (i < 5) p0 = ADC0.RES;
+	}
+	f_printf(&fd, ",,%d,%d,\n", p0, p1); 
+	
+	return p1 - p0;
+}
+
+void saturated(){
+	for (int i = 0; i < 3; i++) {
+		PORTC.OUTSET = 1 << 2;
+		_delay_ms(50);
+		PORTC.OUTCLR = 1 << 2;
+		_delay_ms(50);
+	}
+}
+
+int32_t oversample(int times) {
+	int32_t acc = 0;
+	for (int i = 0; i < times; i++) {
+		acc += measure();
+	}
+	
+	int32_t avg = (acc / times);
+	if (avg < 0) avg *= -1;
+	if (avg > 1800) saturated();
+	
+	return acc;
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -333,12 +422,10 @@ void write_banner() {
 	f_puts("\n,,Fluxgate datalogger: restarted, numbering will be reset.\n", &fd);
 	f_sync(&fd);
 }
-void write_datapoint(int64_t measurement) {
-	PORTC.OUTSET = 1 << 2;
-	f_printf(&fd, "%ld,%lld,\n", lines_written, measurement); 
+void write_datapoint(int32_t measurement) {
+	f_printf(&fd, "%ld,%ld,\n", lines_written, measurement); 
 	f_sync(&fd);
 	lines_written++;
-	PORTC.OUTCLR = 1 << 2;
 }
 
 int main(void) {
@@ -355,10 +442,19 @@ int main(void) {
 	if (f_open(&fd, "/FLUXGATE.CSV", FA_WRITE | FA_OPEN_APPEND)) sd_timeout();
 	write_banner();
 
-	// Flash LED	
+	// Run self test, this writes to the SD card
+	self_test();
+	
+	// Log data
 	while (1) {
 		_delay_ms(200);
-		write_datapoint(measure());
+		// Turn on the amplifier
+		PORTC.OUTSET = PORTC_E_SENSOR;
+		_delay_ms(10);
+		// Record data
+		write_datapoint(oversample(5));
+		// Turn off unnedded components
+		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
 	return 0;
 }
