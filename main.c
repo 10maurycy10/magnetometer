@@ -11,6 +11,24 @@
 
 #define PORTA_CS (1 << 7)
 
+// Flash LED at 5 Hz indicate problem with uSD
+void sd_timeout() {
+	while (1) {
+		PORTC.OUT ^= PORTC_LED;
+		_delay_ms(100);
+	}
+}
+
+// Flash LED 3 times to indicate saturation
+void saturated(){
+	for (int i = 0; i < 3; i++) {
+		PORTC.OUTSET = 1 << 2;
+		_delay_ms(50);
+		PORTC.OUTCLR = 1 << 2;
+		_delay_ms(50);
+	}
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //                                                                           //
 // Low level memory card driver, supports MMC (untested) SDSC, SDHC, and     //
@@ -28,13 +46,6 @@ uint8_t sd_xfer(uint8_t data) {
 	return SPI0.DATA;
 }
 
-// Flash LED to indicate problem with the card.
-void sd_timeout() {
-	while (1) {
-		PORTC.OUT ^= PORTC_LED;
-		_delay_ms(100);
-	}
-}
 
 // Read a R1 format response, the other formats are just R1 with some data 
 // tacked on, which can be read with sd_xfer(). 
@@ -365,35 +376,25 @@ int32_t measure() {
 	
 	// Run drive coil
 	int16_t p0 = 0, p1 = 0;
-	for (int i = 10; i > 0; i--) {
+	for (int i = 10; ; i--) {
 		PORTC.OUT ^= 1 << 2;
-		if (i < 5) ADC0.COMMAND = 1;
-		_delay_us(17);
+		ADC0.COMMAND = 1;
+		_delay_us(17 + 12);
 		PORTC.OUTSET = PORTC_DRIVE_COIL;
-		_delay_us(12);
-		while (ADC0.COMMAND) ;
-		if (i < 5) p1 = ADC0.RES;
+		if (i == 5) p1 = 0;
+		p1 += ADC0.RES;
 		
 		PORTC.OUT ^= 1 << 2;
-		if (i < 5) ADC0.COMMAND = 1;
-		_delay_us(17);
+		ADC0.COMMAND = 1;
+		_delay_us(17+12);
 		PORTC.OUTCLR = PORTC_DRIVE_COIL; 
-		_delay_us(12);
-		while (ADC0.COMMAND) ;
-		if (i < 5) p0 = ADC0.RES;
+		if (i == 5) p0 = 0;
+		p0 += ADC0.RES;
 	}
 	
 	return p1 - p0;
 }
 
-void saturated(){
-	for (int i = 0; i < 3; i++) {
-		PORTC.OUTSET = 1 << 2;
-		_delay_ms(50);
-		PORTC.OUTCLR = 1 << 2;
-		_delay_ms(50);
-	}
-}
 
 int32_t oversample(int times) {
 	int32_t acc = 0;
@@ -401,7 +402,7 @@ int32_t oversample(int times) {
 		acc += measure();
 	}
 	
-	int32_t avg = (acc / times);
+	int32_t avg = (acc / times / 5);
 	if (avg < 0) avg *= -1;
 	if (avg > 1800) saturated();
 	
@@ -428,6 +429,14 @@ void write_datapoint(int32_t measurement) {
 }
 
 int main(void) {
+	// Cystal clock
+//	CCP = CCP_IOREG_gc; 
+//	CLKCTRL.XOSCHFCTRLA = 0b10001001; // Run standby, 256 cycle startup, max 24 MHz, Xtal
+//	while (!(CLKCTRL.MCLKSTATUS & 1 << 4)) ; 
+//	CCP = CCP_IOREG_gc; 
+//	CLKCTRL.MCLKCTRLA = 0x3; // External clock
+
+
 	PORTC.DIRSET = 0xFF; // LED
 
 	PORTA.DIRSET = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; // Sd card spi pins
@@ -443,15 +452,22 @@ int main(void) {
 
 	// Run self test, this writes to the SD card
 	self_test();
+		
+	
+//	while (1) {
+//		PORTC.OUTSET = PORTC_E_SENSOR;
+//		oversample(1);
+//		_delay_ms(50);
+//	}
 	
 	// Log data
 	while (1) {
-		_delay_ms(200);
+		_delay_ms(10000);
 		// Turn on the amplifier
 		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
 		// Record data
-		write_datapoint(oversample(5));
+		write_datapoint(oversample(1024));
 		// Turn off unnedded components
 		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
