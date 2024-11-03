@@ -4,12 +4,36 @@
 #include "fs/ff.h"
 #include "fs/diskio.h"
 
+// TODO: Acurate (Xtal?) controlled timing
+// Burst (high frequency) measurements
+
 #define PORTC_E_CARD (1 << 0)
 #define PORTC_E_SENSOR (1 << 1)
 #define PORTC_LED (1 << 2)
 #define PORTC_DRIVE_COIL (1 << 3)
 
 #define PORTA_CS (1 << 7)
+
+uint32_t log_interval = 10000; // ms
+int oversampling_ratio = 47; // Chosen to null out 60 Hz interference
+
+FATFS fs;
+FIL fd;
+
+void read_config() {
+	FIL config;
+	f_open(&config, "FLUXGATE.CFG", FA_READ);
+	int32_t value;
+	uint16_t len;
+	
+	// Read log interval
+	f_read(&config, &value, sizeof(int32_t), &len);
+	if (len > 0) log_interval = value;
+	
+	// Reading oversampling ratio
+	f_read(&config, &value, sizeof(int32_t), &len);
+	if (len > 0) oversampling_ratio = value;
+}
 
 // Flash LED at 5 Hz indicate problem with uSD
 void sd_timeout() {
@@ -22,9 +46,9 @@ void sd_timeout() {
 // Flash LED 3 times to indicate saturation
 void saturated(){
 	for (int i = 0; i < 3; i++) {
-		PORTC.OUTSET = 1 << 2;
+		PORTC.OUTSET = PORTC_LED;
 		_delay_ms(50);
-		PORTC.OUTCLR = 1 << 2;
+		PORTC.OUTCLR = PORTC_LED;
 		_delay_ms(50);
 	}
 }
@@ -286,8 +310,6 @@ DWORD get_fattime (void) {
 //                                                                          //
 //////////////////////////////////////////////////////////////////////////////
 
-FATFS fs;
-FIL fd;
 
 void adc_setup() {
 	VREF.ADC0REF = 0x0; // Internal 1.024 V reference
@@ -332,7 +354,7 @@ void self_test() {
 		while (ADC0.COMMAND) ;
 	}
 	int16_t vdiv = ADC0.RES;
-	f_printf(&fd, "VDIV,%d\n", vdiv); 
+	f_printf(&fd, "Vdiv,%d\n", vdiv); 
 
 	// Read amplifier output
 	VREF.ADC0REF = 1; // 2.048 V reference
@@ -343,7 +365,7 @@ void self_test() {
 		while (ADC0.COMMAND) ;
 	}
 	int16_t vamp = ADC0.RES;
-	f_printf(&fd, "VAMP,%d\n", vamp); 
+	f_printf(&fd, "Vamp,%d\n", vamp); 
 	
 	// Read difference
 	VREF.ADC0REF = 1; // 2.048 V reference
@@ -354,7 +376,7 @@ void self_test() {
 		while (ADC0.COMMAND) ;
 	}
 	int16_t vdiff = ADC0.RES;
-	f_printf(&fd, "VDIFF,%d\n", vdiff); 
+	f_printf(&fd, "Vdiff,%d\n", vdiff); 
 	
 	
 	// Turn off the amplifier
@@ -395,7 +417,7 @@ int32_t measure() {
 	return p1 - p0;
 }
 
-
+// Add up a bunch of measurements together to minize noise
 int32_t oversample(int times) {
 	int32_t acc = 0;
 	for (int i = 0; i < times; i++) {
@@ -419,9 +441,12 @@ int32_t oversample(int times) {
 uint32_t lines_written = 0;
 
 void write_banner() {
-	f_puts("\n,,Fluxgate datalogger: restarted, numbering will be reset.\n", &fd);
+	f_puts("\n,,Fluxgate datalogger: restarted.\n", &fd);
+	f_printf(&fd, "Log delay,%ld\n", log_interval);
+	f_printf(&fd, "OSR,%d\n", oversampling_ratio);
 	f_sync(&fd);
 }
+
 void write_datapoint(int32_t measurement) {
 	f_printf(&fd, "%ld,%ld,\n", lines_written, measurement); 
 	f_sync(&fd);
@@ -429,14 +454,6 @@ void write_datapoint(int32_t measurement) {
 }
 
 int main(void) {
-	// Cystal clock
-//	CCP = CCP_IOREG_gc; 
-//	CLKCTRL.XOSCHFCTRLA = 0b10001001; // Run standby, 256 cycle startup, max 24 MHz, Xtal
-//	while (!(CLKCTRL.MCLKSTATUS & 1 << 4)) ; 
-//	CCP = CCP_IOREG_gc; 
-//	CLKCTRL.MCLKCTRLA = 0x3; // External clock
-
-
 	PORTC.DIRSET = 0xFF; // LED
 
 	PORTA.DIRSET = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; // Sd card spi pins
@@ -444,25 +461,27 @@ int main(void) {
 
 	adc_setup();
 	
-	// Write the startup banner to the card
+	// Mount the card, read config and open log file
 	sd_init();
 	if (f_mount(&fs, "", 1)) sd_timeout();
+	read_config();
 	if (f_open(&fd, "/FLUXGATE.CSV", FA_WRITE | FA_OPEN_APPEND)) sd_timeout();
 	write_banner();
 
-	// Run self test, this writes to the SD card
+	// Run self test, this writes to the card
 	self_test();
 		
 	// Log data
 	while (1) {
-		_delay_ms(10000);
+		for (uint32_t i = 0; i < log_interval; i++) _delay_ms(1);
 		// Turn on the amplifier
 		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
 		// Record data
-		write_datapoint(oversample(47)); // Chosen such that measurement takes 1/30 Hz, nulling out 60 Hz interference.
+		write_datapoint(oversample(oversampling_ratio)); // Chosen such that measurement takes 1/30 Hz, nulling out 60 Hz interference.
 		// Turn off unnedded components
 		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
+
 	return 0;
 }
