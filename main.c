@@ -4,7 +4,7 @@
 #include "fs/ff.h"
 #include "fs/diskio.h"
 
-// TODO: Acurate (Xtal?) controlled timing
+// TODO
 // Burst (high frequency) measurements
 
 #define PORTC_E_CARD (1 << 0)
@@ -471,16 +471,21 @@ int main(void) {
 
 	// Run self test, this writes to the card
 	self_test();
-		
-	// Log data
+
+	// Max = ~33 seconds
+	TCA0.SINGLE.PER = log_interval * 1959 / 1000;
+	TCA0.SINGLE.CTRLA = 0b10001111; // clk_per/1024 = 1.953 kHz
+	
+	// Loggging loop
 	while (1) {
-		for (uint32_t i = 0; i < log_interval; i++) _delay_ms(1);
-		// Turn on the amplifier
+		// Wait for timer to overflow
+		while (~TCA0.SINGLE.INTFLAGS & 1) ;
+		TCA0.SINGLE.INTFLAGS = 1;
+
+		// Record field reading
 		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
-		// Record data
-		write_datapoint(oversample(oversampling_ratio)); // Chosen such that measurement takes 1/30 Hz, nulling out 60 Hz interference.
-		// Turn off unnedded components
+		write_datapoint(oversample(oversampling_ratio));
 		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
 

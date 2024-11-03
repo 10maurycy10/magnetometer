@@ -22,10 +22,10 @@ $$ \text{Reading} = \text{Peak-Peak voltage (mV)} \times 10 \times \text{OSR} $$
 
 If a file called `FLUXGATE.CFG` exists, it is read to configure the sensor, in a binary format, each field is little endian:
 
-|Length (bits)|Value|
+|Length (bits)|Value|Range|
 |-|-|
-|32|Sample delay, millisconds|
-|32|Oversampling ratio|
+|32|Sample delay, millisconds|0-30 seconds
+|32|Oversampling ratio|1-13100|
 
 # Hardware
 
