@@ -364,7 +364,7 @@ int32_t measure() {
 	adc_setup();
 	
 	// Run drive coil
-	int32_t p0 = 0, p1 = 0;
+	int16_t p0 = 0, p1 = 0;
 	for (int i = 10; i > 0; i--) {
 		PORTC.OUT ^= 1 << 2;
 		if (i < 5) ADC0.COMMAND = 1;
@@ -382,7 +382,6 @@ int32_t measure() {
 		while (ADC0.COMMAND) ;
 		if (i < 5) p0 = ADC0.RES;
 	}
-	f_printf(&fd, ",,%d,%d,\n", p0, p1); 
 	
 	return p1 - p0;
 }
