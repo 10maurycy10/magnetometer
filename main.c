@@ -376,7 +376,7 @@ int32_t measure() {
 	
 	// Run drive coil
 	int16_t p0 = 0, p1 = 0;
-	for (int i = 10; ; i--) {
+	for (int i = 10; i > 0; i--) {
 		PORTC.OUT ^= 1 << 2;
 		ADC0.COMMAND = 1;
 		_delay_us(17 + 12);
@@ -453,13 +453,6 @@ int main(void) {
 	// Run self test, this writes to the SD card
 	self_test();
 		
-	
-//	while (1) {
-//		PORTC.OUTSET = PORTC_E_SENSOR;
-//		oversample(1);
-//		_delay_ms(50);
-//	}
-	
 	// Log data
 	while (1) {
 		_delay_ms(10000);
@@ -467,7 +460,7 @@ int main(void) {
 		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
 		// Record data
-		write_datapoint(oversample(1024));
+		write_datapoint(oversample(47)); // Chosen such that measurement takes 1/30 Hz, nulling out 60 Hz interference.
 		// Turn off unnedded components
 		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
