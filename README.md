@@ -15,10 +15,10 @@ Data is logged to `FLUXGATE.CSV`, in a CSV format.
 |`Vamp`|Int (mV)|Measured amplifier output voltage, written on startup|
 |`Vdiv`|Int (mV)|Measure diffence between Vdd/2 and output, written on startup|
 |`OSR`|Int|Oversampling ratio used for measurements|
-|`Tlog|Int (ms)|Time between measurements|
+|`Tlog`|Int (ms)|Time between measurements|
 |Int|Int|Field measurements, first field is a counter that increments with each one.|
 
-$$ \text{Reading} = \text{Peak-Peak voltage (mV)} * 10 * \text{OSR} $$
+$$ \text{Reading} = \text{Peak-Peak voltage (mV)} \times 10 \times \text{OSR} $$
 
 If a file called `FLUXGATE.CFG` exists, it is read to configure the sensor, in a binary format, each field is little endian:
 
