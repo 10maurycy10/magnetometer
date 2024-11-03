@@ -34,6 +34,8 @@ void read_config() {
 	// Reading oversampling ratio
 	f_read(&config, &value, sizeof(int32_t), &len);
 	if (len > 0) oversampling_ratio = value;
+
+	f_close(&config);
 }
 
 // Flash LED at 5 Hz indicate problem with uSD
@@ -51,6 +53,23 @@ void saturated(){
 		_delay_ms(50);
 		PORTC.OUTCLR = PORTC_LED;
 		_delay_ms(50);
+	}
+}
+
+// Two quick flashes then delay
+void self_test_failure() {
+	f_printf(&fd, ",,Self test failed. Giving up.\n"); 
+	f_close(&fd);
+	sd_power_off(); // Ensure that the log file is written
+	while (1) {
+		PORTC.OUTSET = PORTC_LED;
+		_delay_ms(100);
+		PORTC.OUTCLR = PORTC_LED;
+		_delay_ms(100);
+		PORTC.OUTSET = 1 << 2;
+		_delay_ms(100);
+		PORTC.OUTCLR = 1 << 2;
+		_delay_ms(500);
 	}
 }
 
@@ -322,22 +341,6 @@ void adc_setup() {
 	ADC0.MUXNEG = 22; // AIN 22
 }
 
-// Two quick flashes then delay
-void self_test_failure() {
-	f_printf(&fd, ",,Self test failed. Giving up.\n"); 
-	f_close(&fd);
-	sd_power_off(); // Ensure that the log file is written
-	while (1) {
-		PORTC.OUTSET = PORTC_LED;
-		_delay_ms(100);
-		PORTC.OUTCLR = PORTC_LED;
-		_delay_ms(100);
-		PORTC.OUTSET = 1 << 2;
-		_delay_ms(100);
-		PORTC.OUTCLR = 1 << 2;
-		_delay_ms(500);
-	}
-}
 
 // Sanity check for the ciruict
 // Measurements are taken multiple times to check for bad (high-z) connections.
