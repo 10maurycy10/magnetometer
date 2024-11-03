@@ -22,7 +22,8 @@ FIL fd;
 
 void read_config() {
 	FIL config;
-	f_open(&config, "FLUXGATE.CFG", FA_READ);
+	if (f_open(&config, "FLUXGATE.CFG", FA_READ)) return;
+
 	int32_t value;
 	uint16_t len;
 	
@@ -442,7 +443,7 @@ uint32_t lines_written = 0;
 
 void write_banner() {
 	f_puts("\n,,Fluxgate datalogger: restarted.\n", &fd);
-	f_printf(&fd, "Log delay,%ld\n", log_interval);
+	f_printf(&fd, "Tlog,%ld\n", log_interval);
 	f_printf(&fd, "OSR,%d\n", oversampling_ratio);
 	f_sync(&fd);
 }
