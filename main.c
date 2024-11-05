@@ -4,8 +4,12 @@
 #include "fs/ff.h"
 #include "fs/diskio.h"
 
-// TODO
+// TODO:
+// Low power sleep mode (slow clock)
+// Power off SD
 // Burst (high frequency) measurements
+
+void sd_power_off();
 
 #define PORTC_E_CARD (1 << 0)
 #define PORTC_E_SENSOR (1 << 1)
@@ -17,8 +21,15 @@
 uint32_t log_interval = 10000; // ms
 int oversampling_ratio = 47; // Chosen to null out 60 Hz interference
 
+// 0: Sum up OSR samples
+// 1: Record OSR independant samples
+int burst_mode = 0;
+#define MAX_BURST 1024
+int16_t burst_buffer[MAX_BURST]; 
+
 FATFS fs;
 FIL fd;
+
 
 void read_config() {
 	FIL config;
@@ -34,6 +45,12 @@ void read_config() {
 	// Reading oversampling ratio
 	f_read(&config, &value, sizeof(int32_t), &len);
 	if (len > 0) oversampling_ratio = value;
+	
+	// Burst mode
+	f_read(&config, &value, sizeof(int32_t), &len);
+	if (len > 0) burst_mode = value;
+	
+	if (oversampling_ratio > MAX_BURST) oversampling_ratio = MAX_BURST;
 
 	f_close(&config);
 }
@@ -82,7 +99,6 @@ void self_test_failure() {
 //                                                                           //
 ///////////////////////////////////////////////////////////////////////////////
 
-// SPI tranceive function
 uint8_t sd_xfer(uint8_t data) {
 	SPI0.DATA = data;
 	while (~SPI0.INTFLAGS & 1 << 7) ;
@@ -91,7 +107,7 @@ uint8_t sd_xfer(uint8_t data) {
 }
 
 
-// Read a R1 format response, the other formats are just R1 with some data 
+// Read an R1 response, the other responces are just R1 with some data 
 // tacked on, which can be read with sd_xfer(). 
 uint8_t sd_get_r1() {
 	uint16_t count = 0;
@@ -105,6 +121,7 @@ uint8_t sd_get_r1() {
 }
 
 // Returns 1 if a valid, error free response is given, 0 on errors or timeout.
+// This is mostly used for checking the card's compatability.
 uint8_t sd_check_r1() {
 	uint16_t count = 0;
 	while (1) {
@@ -118,8 +135,8 @@ uint8_t sd_check_r1() {
 }
 
 // Send a command to the card.
-// The CRC will be ingored once initialized for SPI mode, but a correct
-// checksum is needed during initilization.
+// The CRC will be ingored once initialized, but a correct checksum
+// is needed during initilization.
 void sd_command(uint8_t cmd, uint32_t arg, uint8_t crc) {
 	sd_xfer(cmd|0x40);
 	sd_xfer((uint8_t)(arg >> 24));
@@ -129,13 +146,14 @@ void sd_command(uint8_t cmd, uint32_t arg, uint8_t crc) {
 	sd_xfer(crc|0x01);
 }
 
-// Initialize the card.
-// Use on start up and after sd_power_off() before reading or writing.
+// Mostly universal initization function, configures the card to use 512 byte blocks
+// if it doesn't already.
 void sd_init() {
 	uint8_t is_v2 = 0, is_byte_addressed = 0;
 
-	// Power on the card
 	PORTA.DIRSET = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
+	PORTC.OUTCLR = PORTC_E_CARD; // Do a power cycle to ensure a known state.
+	_delay_ms(10);
 	PORTC.OUTSET = PORTC_E_CARD;
 	_delay_ms(10);
 	PORTA.OUTSET = PORTA_CS;
@@ -157,18 +175,19 @@ void sd_init() {
 	// This will work on newer V2 cards, but will fail on V1 or MMC cards.
 	sd_command(8, 0x1AA, 0x87);
 	if (sd_check_r1()) {
-		// If it worked, read the eched responce
+		// If it worked, read back the echoed response.
+		// If this data is wrong, there is probobly an issue with the connection.
 		is_v2 = 1;
 		if (sd_xfer(0xFF) != 0x00) sd_timeout();
 		if (sd_xfer(0xFF) != 0x00) sd_timeout();
 		if (sd_xfer(0xFF) != 0x01) sd_timeout();
 		if (sd_xfer(0xFF) != 0xAA) sd_timeout();
 	} else {
-		// We have a V1 or MMC card, either way it uses byte addressing by default
+		// If it didn't we have a V1 or MMC card, either way it uses byte addressing by default
 		is_byte_addressed = 1;
 	}
 
-	// Use ACMD41 to initialize the card. This will fail on MMC cards.
+	// Use ACMD41 (CMD55+CMD41) to initialize the card. This will fail on MMC cards.
 	// This always takes a few attemps, I don't really know why.
 	int done = 0;
 	int timeout = 1000; // 1 second
@@ -200,7 +219,7 @@ void sd_init() {
 		uint8_t status = sd_get_r1();
 		if (status == 0x00) done = 1;
 		else if (status == 0x01) continue;
-		else sd_timeout(); // Broken or very old card. (before SD ver. 2)
+		else sd_timeout(); // Broken or very old card. 
 	}
 
 	// Some V2 cards use byte addressing, we have to check.
@@ -230,11 +249,10 @@ void sd_power_off() {
 	// Make sure the card has time to finish operations
 	for (int i = 0; i < 10; i++) sd_xfer(0xFF);
 	_delay_ms(1);
-	// Actually cut power
-	PORTA.DIRCLR = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
-	_delay_ms(1);
+	
 	PORTC.OUTCLR = PORTC_E_CARD;
 	_delay_ms(1);
+	PORTA.DIRCLR = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
 }
 
 // Low level read and write primitives
@@ -396,43 +414,84 @@ void self_test() {
 	if (vdiff > 50 || vdiff < -50) self_test_failure();
 }
 
-int32_t measure() {
-	// Reset ADC for 1 volt (.5 mV res) differential mode
-	adc_setup();
+// Results are stored in burst_buffer
+void measure(int count) {
+	adc_setup(); // Reset ADC for 1 volt (.5 mV res) differential mode
 	
-	// Run drive coil
-	int16_t p0 = 0, p1 = 0;
-	for (int i = 10; i > 0; i--) {
-		PORTC.OUT ^= 1 << 2;
+	int n = 0; // Number of samples recorded
+	int i = -10; // Number of half-cycles in the current sample	
+	int sign = 1; // Current phase of the drive coil
+	volatile int16_t accumulator = 0;
+
+	while (n < count) {
+		PORTC.OUT ^= PORTC_LED;
 		ADC0.COMMAND = 1;
-		_delay_us(17 + 12);
-		PORTC.OUTSET = PORTC_DRIVE_COIL;
-		if (i == 5) p1 = 0;
-		p1 += ADC0.RES;
+		_delay_us(18); 
+		PORTC.OUT ^= PORTC_DRIVE_COIL;
 		
-		PORTC.OUT ^= 1 << 2;
-		ADC0.COMMAND = 1;
-		_delay_us(17+12);
-		PORTC.OUTCLR = PORTC_DRIVE_COIL; 
-		if (i == 5) p0 = 0;
-		p0 += ADC0.RES;
+		// Record samples every 5 cycles
+		if (i == 10) {
+			burst_buffer[n] = accumulator;
+			accumulator = 0;
+			i = 0;
+			n++;
+		}
+
+		// Record measurement
+		accumulator += ADC0.RES * sign;
+		if (i < 0) accumulator = 0;
+		
+		sign *= -1;
+		i++;
 	}
-	
-	return p1 - p0;
+
+	PORTC.OUTCLR = PORTC_LED || PORTC_DRIVE_COIL;
 }
 
+
+//////////////////////////////////////////////////////////////////////////////
+//                                                                          //
+// Measurement modes                                                        //
+//                                                                          //
+//////////////////////////////////////////////////////////////////////////////
+
+uint32_t lines_written = 0;
+
 // Add up a bunch of measurements together to minize noise
-int32_t oversample(int times) {
+void oversample(int times) {
+	measure(times);
+
 	int32_t acc = 0;
-	for (int i = 0; i < times; i++) {
-		acc += measure();
-	}
+	for (int i = 0; i < times; i++) acc += burst_buffer[i];
 	
 	int32_t avg = (acc / times / 5);
 	if (avg < 0) avg *= -1;
 	if (avg > 1800) saturated();
 	
-	return acc;
+	f_printf(&fd, "%ld,%ld,\n", lines_written, acc); 
+	f_sync(&fd);
+	lines_written++;	
+}
+
+// Dump all the raw measurements to allow recording AC fields
+void burst(int times) {
+	measure(times);
+
+	int is_saturated = 0;
+
+	f_printf(&fd, "%ld,", lines_written); 
+	for (int i = 0; i < times; i++) {
+		f_printf(&fd, "%d,", burst_buffer[i]); 
+		if (burst_buffer[i] > 1800 * 5) is_saturated = 1;
+		if (burst_buffer[i] < -1800 * 5) is_saturated = 1;
+	}
+	f_printf(&fd, "\n"); 
+	
+	// Flash LED if sensor saturated during burst 
+	if (is_saturated) saturated();
+
+	f_sync(&fd);
+	lines_written++;	
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -442,19 +501,12 @@ int32_t oversample(int times) {
 //////////////////////////////////////////////////////////////////////////////
 
 
-uint32_t lines_written = 0;
 
 void write_banner() {
 	f_puts("\n,,Fluxgate datalogger: restarted.\n", &fd);
 	f_printf(&fd, "Tlog,%ld\n", log_interval);
 	f_printf(&fd, "OSR,%d\n", oversampling_ratio);
 	f_sync(&fd);
-}
-
-void write_datapoint(int32_t measurement) {
-	f_printf(&fd, "%ld,%ld,\n", lines_written, measurement); 
-	f_sync(&fd);
-	lines_written++;
 }
 
 int main(void) {
@@ -488,7 +540,11 @@ int main(void) {
 		// Record field reading
 		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
-		write_datapoint(oversample(oversampling_ratio));
+		if (burst_mode) {
+			burst(oversampling_ratio);
+		} else {
+			oversample(oversampling_ratio);
+		}
 		PORTC.OUTCLR = PORTC_DRIVE_COIL | PORTC_E_SENSOR;
 	}
 
