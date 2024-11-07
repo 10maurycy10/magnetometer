@@ -471,8 +471,8 @@ void oversample(int times) {
 	if (avg < 0) avg *= -1;
 	if (avg > 1800) saturated();
 	
-	//f_printf(&fd, "%ld,%ld\n", lines_written, acc); 
-	//f_sync(&fd);
+	f_printf(&fd, "%ld,%ld\n", lines_written, acc); 
+	f_sync(&fd);
 	lines_written++;	
 }
 
