@@ -18,18 +18,17 @@ void sd_power_off();
 
 #define PORTA_CS (1 << 7)
 
-uint32_t log_interval = 10000; // ms
+uint32_t log_interval = 1000; // ms
 int oversampling_ratio = 47; // Chosen to null out 60 Hz interference
 
 // 0: Sum up OSR samples
 // 1: Record OSR independant samples
 int burst_mode = 0;
-#define MAX_BURST 1024
+#define MAX_BURST 512
 int16_t burst_buffer[MAX_BURST]; 
 
 FATFS fs;
 FIL fd;
-
 
 void read_config() {
 	FIL config;
@@ -416,7 +415,9 @@ void self_test() {
 
 // Results are stored in burst_buffer
 void measure(int count) {
+	PORTC.OUTSET = PORTC_E_SENSOR;
 	adc_setup(); // Reset ADC for 1 volt (.5 mV res) differential mode
+	_delay_ms(10); // Givw the sensor time to start
 	
 	int n = 0; // Number of samples recorded
 	int i = -10; // Number of half-cycles in the current sample	
@@ -445,7 +446,9 @@ void measure(int count) {
 		i++;
 	}
 
-	PORTC.OUTCLR = PORTC_LED || PORTC_DRIVE_COIL;
+	PORTC.OUTCLR = PORTC_LED;
+	PORTC.OUTCLR = PORTC_DRIVE_COIL;
+	PORTC.OUTCLR = PORTC_E_SENSOR;
 }
 
 
@@ -468,8 +471,8 @@ void oversample(int times) {
 	if (avg < 0) avg *= -1;
 	if (avg > 1800) saturated();
 	
-	f_printf(&fd, "%ld,%ld,\n", lines_written, acc); 
-	f_sync(&fd);
+	//f_printf(&fd, "%ld,%ld\n", lines_written, acc); 
+	//f_sync(&fd);
 	lines_written++;	
 }
 
@@ -510,7 +513,7 @@ void write_banner() {
 }
 
 int main(void) {
-	PORTC.DIRSET = 0xFF; // LED
+	PORTC.DIRSET = 0xFF; // LED + Drive coil + PM mosfets
 
 	PORTA.DIRSET = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; // Sd card spi pins
 	SPI0.CTRLA = 1 << 5 | 0x3 << 1 | 1; // SPI: Master, max prescaler, enabled
@@ -538,7 +541,6 @@ int main(void) {
 		TCA0.SINGLE.INTFLAGS = 1;
 
 		// Record field reading
-		PORTC.OUTSET = PORTC_E_SENSOR;
 		_delay_ms(10);
 		if (burst_mode) {
 			burst(oversampling_ratio);
