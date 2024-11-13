@@ -5,9 +5,9 @@
 #include "fs/diskio.h"
 
 // TODO:
+// Large OSR's
 // Low power sleep mode (slow clock)
 // Power off SD
-// Burst (high frequency) measurements
 
 void sd_power_off();
 
@@ -247,11 +247,12 @@ void sd_init() {
 void sd_power_off() {
 	// Make sure the card has time to finish operations
 	for (int i = 0; i < 10; i++) sd_xfer(0xFF);
-	_delay_ms(1);
-	
+	_delay_ms(5); // T
+
+//	TODO FIXME	
 	PORTC.OUTCLR = PORTC_E_CARD;
-	_delay_ms(1);
-	PORTA.DIRCLR = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
+//	_delay_ms(1);
+//	PORTA.DIRCLR = 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7; 
 }
 
 // Low level read and write primitives
@@ -471,9 +472,11 @@ void oversample(int times) {
 	if (avg < 0) avg *= -1;
 	if (avg > 1800) saturated();
 	
+	sd_init();
 	f_printf(&fd, "%ld,%ld\n", lines_written, acc); 
 	f_sync(&fd);
 	lines_written++;	
+	sd_power_off();
 }
 
 // Dump all the raw measurements to allow recording AC fields
@@ -482,6 +485,7 @@ void burst(int times) {
 
 	int is_saturated = 0;
 
+	sd_init();
 	f_printf(&fd, "%ld,", lines_written); 
 	for (int i = 0; i < times; i++) {
 		f_printf(&fd, "%d,", burst_buffer[i]); 
@@ -495,6 +499,7 @@ void burst(int times) {
 
 	f_sync(&fd);
 	lines_written++;	
+	sd_power_off();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -529,6 +534,9 @@ int main(void) {
 
 	// Run self test, this writes to the card
 	self_test();
+	
+	// Turn off the card to conserve power.
+	sd_power_off();
 
 	// Max = ~33 seconds
 	TCA0.SINGLE.PER = log_interval * 1959 / 1000;
