@@ -20,13 +20,6 @@ Data is logged to `FLUXGATE.CSV`, in a CSV format.
 
 $$ \text{Reading} = \text{Peak-Peak voltage (mV)} \times 10 \times \text{OSR} $$
 
-If a file called `FLUXGATE.CFG` exists, it is read to configure the sensor, in a binary format, each field is little endian:
-
-|Length (bits)|Value|Range|
-|-|-|
-|32|Sample delay, millisconds|0-30 seconds
-|32|Oversampling ratio|1-13100|
-
 # Hardware
 
 It should be able to drive most fluxgates, but I got the best result with a [high permiability, square-loop core](https://www.digikey.com/en/products/detail/toshiba-semiconductor-and-storage/MS21X14X4-5W/4701157)
